@@ -2648,6 +2648,93 @@ class Garmin:
         logger.debug("Requesting adaptive training plan details for %s", plan_id)
         return self.connectapi(url)
 
+    def get_fbt_adaptive_workout(self, workout_uuid: str) -> dict[str, Any]:
+        """Return detailed workout structure for an FBT adaptive coaching workout.
+
+        Returns complete workout details including:
+        - Workout segments and steps
+        - Intervals and repeat groups
+        - Target zones (pace, heart rate)
+        - Duration and distance targets
+        - Training effect estimates
+
+        Args:
+            workout_uuid: UUID of the workout (from training plan taskList)
+
+        Returns:
+            Dictionary containing complete workout structure
+        """
+        url = f"{self.garmin_workouts}/fbt-adaptive/{workout_uuid}"
+        logger.debug("Requesting FBT adaptive workout details for %s", workout_uuid)
+        return self.connectapi(url)
+
+    def get_adaptive_coaching_settings(self) -> dict[str, Any]:
+        """Return user's adaptive coaching preferences and settings.
+
+        Returns settings including:
+        - Available training days
+        - Preferred long run days
+        - Preferred swim training days (if applicable)
+        - Adaptive coaching plan type
+
+        Returns:
+            Dictionary containing user coaching settings
+        """
+        url = "/userprofile-service/userprofile/adaptive-coaching-plan-user-setting"
+        logger.debug("Requesting adaptive coaching user settings")
+        return self.connectapi(url)
+
+    def get_activities_with_compliance(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> list[dict[str, Any]]:
+        """Return activities with workout compliance information.
+
+        Retrieves activities for a date range including:
+        - Adaptive coaching workout status
+        - Workout compliance scores
+        - Links to planned workouts
+        - Training effect labels
+        - Performance metrics
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+
+        Returns:
+            List of activities with compliance information
+        """
+        start_date = _validate_date_format(start_date, "start_date")
+        end_date = _validate_date_format(end_date, "end_date")
+
+        # Build the URL with all metrics we want
+        metrics = [
+            "adaptiveCoachingWorkoutStatus",
+            "workoutComplianceScore",
+            "workoutType",
+            "workoutId",
+            "workoutUuid",
+            "calendarEventId",
+            "calendarEventUuid",
+            "aerobicTrainingEffect",
+            "trainingEffectLabel",
+            "avgSpeed",
+            "distance",
+            "duration",
+            "activityType",
+            "name",
+            "startLocal",
+            "parentId",
+            "workoutGroupEnumerator",
+        ]
+
+        metric_params = "&".join(f"metric={m}" for m in metrics)
+        url = f"/fitnessstats-service/activity/all?startDate={start_date}&endDate={end_date}&{metric_params}&standardizedUnits=true"
+
+        logger.debug("Requesting activities with compliance from %s to %s", start_date, end_date)
+        return self.connectapi(url)
+
 
 class GarminConnectConnectionError(Exception):
     """Raised when communication ended in error."""
