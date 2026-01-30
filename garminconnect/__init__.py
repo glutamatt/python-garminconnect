@@ -2393,13 +2393,20 @@ class Garmin:
 
         return self.download(url)
 
-    def upload_workout(
+    def _parse_workout_json(
         self, workout_json: dict[str, Any] | list[Any] | str
-    ) -> dict[str, Any]:
-        """Upload workout using json data."""
-        url = f"{self.garmin_workouts}/workout"
-        logger.debug("Uploading workout using %s", url)
+    ) -> dict[str, Any] | list[Any]:
+        """Parse and validate workout JSON input.
 
+        Args:
+            workout_json: Workout data as dict, list, or JSON string
+
+        Returns:
+            Parsed workout data as dict or list
+
+        Raises:
+            ValueError: If workout_json is invalid
+        """
         if isinstance(workout_json, str):
             import json as _json
 
@@ -2411,6 +2418,15 @@ class Garmin:
             payload = workout_json
         if not isinstance(payload, dict | list):
             raise ValueError("workout_json must be a JSON object or array")
+        return payload
+
+    def upload_workout(
+        self, workout_json: dict[str, Any] | list[Any] | str
+    ) -> dict[str, Any]:
+        """Upload workout using json data."""
+        url = f"{self.garmin_workouts}/workout"
+        logger.debug("Uploading workout using %s", url)
+        payload = self._parse_workout_json(workout_json)
         return self.garth.post("connectapi", url, json=payload, api=True).json()
 
     def schedule_workout(self, workout_id: int, date: str) -> dict[str, Any]:
@@ -2427,6 +2443,284 @@ class Garmin:
         logger.debug("Scheduling workout %s for date %s using %s", workout_id, date, url)
         payload = {"date": date}
         return self.garth.post("connectapi", url, json=payload, api=True).json()
+
+    def delete_workout(self, workout_id: int) -> bool:
+        """Delete a workout from the workout library.
+
+        Args:
+            workout_id: The ID of the workout to delete
+
+        Returns:
+            True if deletion was successful (HTTP 204)
+
+        Raises:
+            GarthHTTPError: If deletion fails
+        """
+        workout_id = _validate_positive_integer(int(workout_id), "workout_id")
+        url = f"{self.garmin_workouts}/workout/{workout_id}"
+        logger.debug("Deleting workout %s using %s", workout_id, url)
+        response = self.garth.request("DELETE", "connectapi", url, api=True)
+        return response.status_code == 204
+
+    def schedule_workout_directly(
+        self, workout_json: dict[str, Any] | list[Any] | str, date: str
+    ) -> dict[str, Any]:
+        """Schedule a workout directly to calendar without saving to workout library.
+
+        This method creates a workout on the calendar for a specific date without
+        persisting it to the user's workout list. It achieves this by:
+        1. Uploading the workout (temporarily creates it in library)
+        2. Scheduling it to the specified date
+        3. Deleting it from the library (remains on calendar)
+
+        Args:
+            workout_json: Workout data as dict, list, or JSON string (same format
+                as upload_workout)
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary containing the scheduled workout data
+
+        Example:
+            workout = {
+                "workoutName": "Easy Run",
+                "sportType": {"sportTypeId": 1, "sportTypeKey": "running"},
+                "workoutSegments": [...]
+            }
+            api.schedule_workout_directly(workout, "2024-01-15")
+        """
+        date = _validate_date_format(date, "date")
+
+        # Step 1: Upload workout (creates it in library temporarily)
+        upload_result = self.upload_workout(workout_json)
+        workout_id = upload_result.get("workoutId")
+
+        if not workout_id:
+            raise ValueError("Failed to get workoutId from upload response")
+
+        try:
+            # Step 2: Schedule the workout
+            schedule_result = self.schedule_workout(workout_id, date)
+
+            # Step 3: Delete from library (keeps it on calendar)
+            self.delete_workout(workout_id)
+
+            return schedule_result
+        except Exception:
+            # If scheduling or deletion fails, try to clean up
+            try:
+                self.delete_workout(workout_id)
+            except Exception:
+                pass
+            raise
+
+    def unschedule_workout(self, scheduled_workout_id: int) -> bool:
+        """Remove a scheduled workout from the calendar.
+
+        Args:
+            scheduled_workout_id: The schedule ID (not workout ID) to remove
+
+        Returns:
+            True if removal was successful (HTTP 204)
+        """
+        scheduled_workout_id = _validate_positive_integer(
+            int(scheduled_workout_id), "scheduled_workout_id"
+        )
+        url = f"{self.garmin_workouts_schedule_url}/{scheduled_workout_id}"
+        logger.debug("Unscheduling workout %s using %s", scheduled_workout_id, url)
+        response = self.garth.request("DELETE", "connectapi", url, api=True)
+        return response.status_code == 204
+
+    def reschedule_workout(
+        self, scheduled_workout_id: int, new_date: str
+    ) -> dict[str, Any]:
+        """Move a scheduled workout to a different date.
+
+        Args:
+            scheduled_workout_id: The schedule ID to reschedule
+            new_date: New date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary containing the updated scheduled workout data
+        """
+        scheduled_workout_id = _validate_positive_integer(
+            int(scheduled_workout_id), "scheduled_workout_id"
+        )
+        new_date = _validate_date_format(new_date, "new_date")
+        url = f"{self.garmin_workouts_schedule_url}/{scheduled_workout_id}"
+        logger.debug(
+            "Rescheduling workout %s to %s using %s",
+            scheduled_workout_id,
+            new_date,
+            url,
+        )
+        payload = {"date": new_date}
+        return self.garth.put("connectapi", url, json=payload, api=True).json()
+
+    def update_workout(
+        self, workout_id: int, workout_json: dict[str, Any] | str
+    ) -> dict[str, Any]:
+        """Update an existing workout in the library.
+
+        Args:
+            workout_id: ID of the workout to update
+            workout_json: Updated workout data as dict or JSON string
+
+        Returns:
+            Dictionary containing the updated workout data
+        """
+        workout_id = _validate_positive_integer(int(workout_id), "workout_id")
+        payload = self._parse_workout_json(workout_json)
+        url = f"{self.garmin_workouts}/workout/{workout_id}"
+        logger.debug("Updating workout %s using %s", workout_id, url)
+        return self.garth.put("connectapi", url, json=payload, api=True).json()
+
+    def get_calendar_month(self, year: int, month: int) -> dict[str, Any]:
+        """Get all calendar items for a specific month.
+
+        Returns events, workouts, activities, and training plan items.
+
+        Args:
+            year: Year (e.g., 2026)
+            month: Month (1-12, but API uses 0-11 internally)
+
+        Returns:
+            Dictionary with calendarItems list and month metadata
+        """
+        # API uses 0-indexed months
+        api_month = month - 1
+        url = f"/calendar-service/year/{year}/month/{api_month}"
+        logger.debug("Getting calendar for %d/%d using %s", year, month, url)
+        return self.connectapi(url)
+
+    def get_calendar_items_for_range(
+        self, start_date: str, end_date: str
+    ) -> list[dict[str, Any]]:
+        """Get all calendar items between two dates.
+
+        Aggregates items from all months in the range.
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+
+        Returns:
+            List of calendar items (events, workouts, activities, plans)
+        """
+        from datetime import datetime
+
+        start_date = _validate_date_format(start_date, "start_date")
+        end_date = _validate_date_format(end_date, "end_date")
+
+        start_dt = datetime.strptime(start_date, DATE_FORMAT_STR)
+        end_dt = datetime.strptime(end_date, DATE_FORMAT_STR)
+
+        all_items = []
+        current_year = start_dt.year
+        current_month = start_dt.month
+
+        while (current_year, current_month) <= (end_dt.year, end_dt.month):
+            month_data = self.get_calendar_month(current_year, current_month)
+            items = month_data.get("calendarItems", [])
+
+            # Filter items within date range
+            for item in items:
+                item_date = item.get("date")
+                if item_date and start_date <= item_date <= end_date:
+                    all_items.append(item)
+
+            # Move to next month
+            current_month += 1
+            if current_month > 12:
+                current_month = 1
+                current_year += 1
+
+        return all_items
+
+    def get_scheduled_workouts_for_range(
+        self, start_date: str, end_date: str
+    ) -> list[dict[str, Any]]:
+        """Get scheduled workouts between two dates via GraphQL.
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+
+        Returns:
+            List of scheduled workout summaries
+        """
+        start_date = _validate_date_format(start_date, "start_date")
+        end_date = _validate_date_format(end_date, "end_date")
+
+        query = {
+            "query": f'query{{workoutScheduleSummariesScalar(startDate:"{start_date}", endDate:"{end_date}")}}'
+        }
+        result = self.query_garmin_graphql(query)
+        return result.get("data", {}).get("workoutScheduleSummariesScalar", [])
+
+    def get_training_readiness(self, date: str | None = None) -> dict[str, Any]:
+        """Get training readiness score and components.
+
+        Args:
+            date: Date in YYYY-MM-DD format (default: today)
+
+        Returns:
+            Dictionary with readiness score, HRV, sleep, recovery info
+        """
+        if date:
+            date = _validate_date_format(date, "date")
+        else:
+            from datetime import datetime
+
+            date = datetime.now().strftime(DATE_FORMAT_STR)
+
+        url = f"/metrics-service/metrics/trainingreadiness/{date}"
+        logger.debug("Getting training readiness for %s", date)
+        return self.connectapi(url)
+
+    def get_training_status(self, date: str | None = None) -> dict[str, Any]:
+        """Get training status (productive, peaking, recovery, etc.).
+
+        Args:
+            date: Date in YYYY-MM-DD format (default: today)
+
+        Returns:
+            Dictionary with training status and load info
+        """
+        if date:
+            date = _validate_date_format(date, "date")
+        else:
+            from datetime import datetime
+
+            date = datetime.now().strftime(DATE_FORMAT_STR)
+
+        url = f"/metrics-service/metrics/trainingstatus/aggregated/{date}"
+        logger.debug("Getting training status for %s", date)
+        return self.connectapi(url)
+
+    def get_weekly_training_load(
+        self, end_date: str | None = None, weeks: int = 4
+    ) -> dict[str, Any]:
+        """Get weekly training load data.
+
+        Args:
+            end_date: End date in YYYY-MM-DD format (default: today)
+            weeks: Number of weeks of data (default: 4)
+
+        Returns:
+            Dictionary with weekly load metrics
+        """
+        if end_date:
+            end_date = _validate_date_format(end_date, "end_date")
+        else:
+            from datetime import datetime
+
+            end_date = datetime.now().strftime(DATE_FORMAT_STR)
+
+        url = f"/metrics-service/metrics/trainingload/weekly/{end_date}"
+        params = {"weeks": weeks}
+        logger.debug("Getting weekly training load ending %s", end_date)
+        return self.connectapi(url, params=params)
 
     def upload_running_workout(self, workout: Any) -> dict[str, Any]:
         """Upload a typed running workout.
