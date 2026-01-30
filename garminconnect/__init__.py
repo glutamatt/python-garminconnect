@@ -2413,6 +2413,21 @@ class Garmin:
             raise ValueError("workout_json must be a JSON object or array")
         return self.garth.post("connectapi", url, json=payload, api=True).json()
 
+    def schedule_workout(self, workout_id: int, date: str) -> dict[str, Any]:
+        """Schedule a workout for a specific date.
+
+        Args:
+            workout_id: The ID of the workout to schedule
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary containing the scheduled workout data
+        """
+        url = f"{self.garmin_workouts}/schedule/{workout_id}"
+        logger.debug("Scheduling workout %s for date %s using %s", workout_id, date, url)
+        payload = {"date": date}
+        return self.garth.post("connectapi", url, json=payload, api=True).json()
+
     def upload_running_workout(self, workout: Any) -> dict[str, Any]:
         """Upload a typed running workout.
 
