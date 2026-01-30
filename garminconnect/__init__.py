@@ -215,6 +215,7 @@ class Garmin:
         self.garmin_connect_menstrual_dayview_url = (
             "/periodichealth-service/menstrualcycle/dayview"
         )
+        self.garmin_connect_calendar_events_url = "/calendar-service/events"
         self.garmin_connect_pregnancy_snapshot_url = (
             "/periodichealth-service/menstrualcycle/pregnancysnapshot"
         )
@@ -1587,6 +1588,59 @@ class Garmin:
             return self.connectapi(url, params=params)
 
         raise ValueError("you must either provide all parameters or no parameters")
+
+    def get_upcoming_calendar_events(
+        self,
+        num_days_forward: int = 365,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Return upcoming calendar events including races.
+
+        Retrieves scheduled events from the Garmin Connect calendar,
+        including race events, workouts, and other calendar items.
+
+        Args:
+            num_days_forward: Number of days forward to look for events (default: 365)
+            limit: Maximum number of events to return (default: 10)
+
+        Returns:
+            Dictionary containing upcoming calendar events
+        """
+        url = f"{self.garmin_connect_calendar_events_url}/upcoming"
+        params = {"numDaysForward": num_days_forward, "limit": limit}
+        return self.connectapi(url, params=params)
+
+    def get_calendar_events(
+        self,
+        start_date: str,
+        limit: int = 20,
+        page_index: int = 1,
+        sort_order: str = "eventDate_asc",
+    ) -> dict[str, Any]:
+        """Return calendar events starting from a specific date.
+
+        Retrieves scheduled events from the Garmin Connect calendar,
+        including race events, workouts, and other calendar items.
+
+        Args:
+            start_date: Start date in YYYY-MM-DD format
+            limit: Maximum number of events to return per page (default: 20)
+            page_index: Page number for pagination (default: 1)
+            sort_order: Sort order for events (default: "eventDate_asc")
+                       Options: "eventDate_asc", "eventDate_desc"
+
+        Returns:
+            Dictionary containing calendar events
+        """
+        start_date = _validate_date_format(start_date, "start_date")
+        url = self.garmin_connect_calendar_events_url
+        params = {
+            "startDate": start_date,
+            "limit": limit,
+            "pageIndex": page_index,
+            "sortOrder": sort_order,
+        }
+        return self.connectapi(url, params=params)
 
     def get_training_status(self, cdate: str) -> dict[str, Any]:
         """Return training status data for current user."""
