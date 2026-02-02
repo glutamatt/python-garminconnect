@@ -2465,13 +2465,14 @@ class Garmin:
     def schedule_workout_directly(
         self, workout_json: dict[str, Any] | list[Any] | str, date: str
     ) -> dict[str, Any]:
-        """Schedule a workout directly to calendar without saving to workout library.
+        """Create a workout and schedule it to the calendar in one step.
 
-        This method creates a workout on the calendar for a specific date without
-        persisting it to the user's workout list. It achieves this by:
-        1. Uploading the workout (temporarily creates it in library)
-        2. Scheduling it to the specified date
-        3. Deleting it from the library (remains on calendar)
+        This method creates a workout and immediately schedules it to a specific date.
+        The workout will be saved in both the workout library and on the calendar.
+
+        Note: Garmin's API requires workouts to exist in the library before they can
+        be scheduled. There is no way to schedule a workout without it being in the
+        library - deleting the workout also removes the scheduled calendar entry.
 
         Args:
             workout_json: Workout data as dict, list, or JSON string (same format
@@ -2479,7 +2480,7 @@ class Garmin:
             date: Date in YYYY-MM-DD format
 
         Returns:
-            Dictionary containing the scheduled workout data
+            Dictionary containing the scheduled workout data including workoutId
 
         Example:
             workout = {
@@ -2491,28 +2492,20 @@ class Garmin:
         """
         date = _validate_date_format(date, "date")
 
-        # Step 1: Upload workout (creates it in library temporarily)
+        # Step 1: Upload workout (creates it in library)
         upload_result = self.upload_workout(workout_json)
         workout_id = upload_result.get("workoutId")
 
         if not workout_id:
             raise ValueError("Failed to get workoutId from upload response")
 
-        try:
-            # Step 2: Schedule the workout
-            schedule_result = self.schedule_workout(workout_id, date)
+        # Step 2: Schedule the workout
+        schedule_result = self.schedule_workout(workout_id, date)
 
-            # Step 3: Delete from library (keeps it on calendar)
-            self.delete_workout(workout_id)
+        # Include workout_id in the result for reference
+        schedule_result["workoutId"] = workout_id
 
-            return schedule_result
-        except Exception:
-            # If scheduling or deletion fails, try to clean up
-            try:
-                self.delete_workout(workout_id)
-            except Exception:
-                pass
-            raise
+        return schedule_result
 
     def unschedule_workout(self, scheduled_workout_id: int) -> bool:
         """Remove a scheduled workout from the calendar.
