@@ -2515,14 +2515,33 @@ class Garmin:
 
         Returns:
             True if removal was successful (HTTP 204)
+
+        Note:
+            Tries both API endpoint and web UI endpoint as fallback.
         """
         scheduled_workout_id = _validate_positive_integer(
             int(scheduled_workout_id), "scheduled_workout_id"
         )
         url = f"{self.garmin_workouts_schedule_url}/{scheduled_workout_id}"
-        logger.debug("Unscheduling workout %s using %s", scheduled_workout_id, url)
-        response = self.garth.request("DELETE", "connectapi", url, api=True)
-        return response.status_code == 204
+
+        # Try API endpoint first (connectapi.garmin.com)
+        logger.debug("Unscheduling workout %s using API endpoint", scheduled_workout_id)
+        try:
+            response = self.garth.request("DELETE", "connectapi", url, api=True)
+            if response.status_code == 204:
+                return True
+        except Exception as e:
+            logger.debug("API endpoint failed: %s, trying web endpoint", e)
+
+        # Fallback to web UI endpoint (connect.garmin.com/gc-api/)
+        web_url = f"/gc-api{url}"
+        logger.debug("Unscheduling workout %s using web endpoint: %s", scheduled_workout_id, web_url)
+        try:
+            response = self.garth.request("DELETE", "connect", web_url, api=True)
+            return response.status_code == 204
+        except Exception as e:
+            logger.debug("Web endpoint also failed: %s", e)
+            return False
 
     def reschedule_workout(
         self, scheduled_workout_id: int, new_date: str
