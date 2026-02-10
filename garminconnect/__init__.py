@@ -2438,11 +2438,26 @@ class Garmin:
 
         Returns:
             Dictionary containing the scheduled workout data
+
+        Note:
+            Tries both API endpoint and web UI endpoint as fallback.
         """
+        workout_id = _validate_positive_integer(int(workout_id), "workout_id")
+        date = _validate_date_format(date, "date")
         url = f"{self.garmin_workouts}/schedule/{workout_id}"
-        logger.debug("Scheduling workout %s for date %s using %s", workout_id, date, url)
         payload = {"date": date}
-        return self.garth.post("connectapi", url, json=payload, api=True).json()
+
+        # Try API endpoint first (connectapi.garmin.com)
+        logger.debug("Scheduling workout %s for date %s using API endpoint", workout_id, date)
+        try:
+            return self.garth.post("connectapi", url, json=payload, api=True).json()
+        except Exception as e:
+            logger.debug("API endpoint failed: %s, trying web endpoint", e)
+
+        # Fallback to web UI endpoint (connect.garmin.com/gc-api/)
+        web_url = f"/gc-api{url}"
+        logger.debug("Scheduling workout %s for date %s using web endpoint: %s", workout_id, date, web_url)
+        return self.garth.post("connect", web_url, json=payload, api=True).json()
 
     def delete_workout(self, workout_id: int) -> bool:
         """Delete a workout from the workout library.
