@@ -2956,6 +2956,71 @@ class Garmin:
             "connectapi", self.garmin_graphql_endpoint, json=query
         ).json()
 
+    def get_usage_indicators(self) -> dict[str, Any]:
+        """Return device-based usage indicators for the authenticated user.
+
+        Calls GET /web-gateway/snapshot/usageIndicators which returns 60+
+        boolean capability flags per the user's registered devices
+        (e.g. hasTrainingStatusCapableDevice, hasHrvStatusCapableDevice).
+
+        Returns:
+            Dictionary with at least ``deviceBasedIndicators`` key mapping
+            to a dict of boolean flags.
+        """
+        url = "/web-gateway/snapshot/usageIndicators"
+        logger.debug("Requesting usage indicators.")
+        return self.connectapi(url)
+
+    def get_coaching_snapshot(self, cdate: str) -> dict[str, Any]:
+        """Return a composite daily coaching snapshot.
+
+        Fetches the 5 key daily metrics in one call: user summary (stats),
+        sleep, training readiness, body battery, and HRV. Each sub-key is
+        None when the individual endpoint returns no data.
+
+        Args:
+            cdate: Date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary with keys: stats, sleep, training_readiness,
+            body_battery, hrv — each containing the raw API response.
+        """
+        cdate = _validate_date_format(cdate, "cdate")
+
+        result: dict[str, Any] = {"date": cdate}
+
+        # Stats (user summary)
+        try:
+            result["stats"] = self.get_user_summary(cdate)
+        except Exception:
+            result["stats"] = None
+
+        # Sleep
+        try:
+            result["sleep"] = self.get_sleep_data(cdate)
+        except Exception:
+            result["sleep"] = None
+
+        # Training readiness
+        try:
+            result["training_readiness"] = self.get_training_readiness(cdate)
+        except Exception:
+            result["training_readiness"] = None
+
+        # Body battery
+        try:
+            result["body_battery"] = self.get_body_battery(cdate)
+        except Exception:
+            result["body_battery"] = None
+
+        # HRV
+        try:
+            result["hrv"] = self.get_hrv_data(cdate)
+        except Exception:
+            result["hrv"] = None
+
+        return result
+
     def logout(self) -> None:
         """Log user out of session."""
         logger.warning(
