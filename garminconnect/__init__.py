@@ -2989,35 +2989,18 @@ class Garmin:
 
         result: dict[str, Any] = {"date": cdate}
 
-        # Stats (user summary)
-        try:
-            result["stats"] = self.get_user_summary(cdate)
-        except Exception:
-            result["stats"] = None
-
-        # Sleep
-        try:
-            result["sleep"] = self.get_sleep_data(cdate)
-        except Exception:
-            result["sleep"] = None
-
-        # Training readiness
-        try:
-            result["training_readiness"] = self.get_training_readiness(cdate)
-        except Exception:
-            result["training_readiness"] = None
-
-        # Body battery
-        try:
-            result["body_battery"] = self.get_body_battery(cdate)
-        except Exception:
-            result["body_battery"] = None
-
-        # HRV
-        try:
-            result["hrv"] = self.get_hrv_data(cdate)
-        except Exception:
-            result["hrv"] = None
+        for key, fetcher in (
+            ("stats", lambda: self.get_user_summary(cdate)),
+            ("sleep", lambda: self.get_sleep_data(cdate)),
+            ("training_readiness", lambda: self.get_training_readiness(cdate)),
+            ("body_battery", lambda: self.get_body_battery(cdate)),
+            ("hrv", lambda: self.get_hrv_data(cdate)),
+        ):
+            try:
+                result[key] = fetcher()
+            except Exception as e:
+                logger.warning("coaching_snapshot: %s failed: %s", key, e)
+                result[key] = None
 
         return result
 
