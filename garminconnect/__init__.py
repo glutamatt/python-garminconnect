@@ -2643,6 +2643,7 @@ class Garmin:
         end_dt = datetime.strptime(end_date, DATE_FORMAT_STR)
 
         all_items = []
+        seen_keys: set = set()
         current_year = start_dt.year
         current_month = start_dt.month
 
@@ -2653,8 +2654,21 @@ class Garmin:
             # Filter items within date range
             for item in items:
                 item_date = item.get("date")
-                if item_date and start_date <= item_date <= end_date:
-                    all_items.append(item)
+                if not (item_date and start_date <= item_date <= end_date):
+                    continue
+                # Garmin returns future events in both their natural month AND the
+                # following month (calendar-overflow rendering quirk). Dedupe by
+                # stable identity to avoid spurious duplicates across months.
+                key = (
+                    item.get("shareableEventUuid")
+                    or item.get("workoutId")
+                    or item.get("id")
+                    or (item.get("itemType"), item_date, item.get("title"))
+                )
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                all_items.append(item)
 
             # Move to next month
             current_month += 1
