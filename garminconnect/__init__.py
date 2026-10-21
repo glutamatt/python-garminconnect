@@ -2674,15 +2674,17 @@ class Garmin:
                 item_date = item.get("date")
                 if not (item_date and start_date <= item_date <= end_date):
                     continue
-                # Garmin returns future events in both their natural month AND the
-                # following month (calendar-overflow rendering quirk). Dedupe by
-                # stable identity to avoid spurious duplicates across months.
-                key = (
-                    item.get("shareableEventUuid")
-                    or item.get("workoutId")
-                    or item.get("id")
-                    or (item.get("itemType"), item_date, item.get("title"))
-                )
+                # A month answers with the days of its grid, some in the next or
+                # previous month: an item can come with two months. Dedupe by the
+                # item's own identity. Not `workoutId`: a workout scheduled on two
+                # days is two items with the same workoutId (and two schedule ids).
+                if item.get("id") is not None:
+                    key = (item.get("itemType"), item["id"])
+                else:
+                    key = (
+                        item.get("shareableEventUuid")
+                        or (item.get("itemType"), item_date, item.get("title"))
+                    )
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
