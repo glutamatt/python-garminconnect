@@ -97,6 +97,24 @@ def _validate_json_exists(response: requests.Response) -> dict[str, Any] | None:
     return response.json()
 
 
+class _GarthClient(garth.Client):
+    """garth's client, with a new headers dict for every request.
+
+    `garth.Client.request` has a mutable default argument, `headers: dict = {}`,
+    and writes the OAuth2 token into it (`headers["Authorization"] = ...`) for
+    an `api=True` call. That dict is shared by every call of every client of
+    the process: a call without its own headers sends the token of the last
+    `api=True` call made in the process, whoever made it (another user), or an
+    expired one (HTTP 401 after a long idle time). Each request here gets its
+    own dict.
+    """
+
+    def request(self, method, subdomain, path, /, api=False, referrer=False, headers=None, **kwargs):
+        return super().request(
+            method, subdomain, path, api=api, referrer=referrer, headers=dict(headers or {}), **kwargs
+        )
+
+
 class Garmin:
     """Class for fetching data from Garmin Connect."""
 
@@ -290,7 +308,7 @@ class Garmin:
             "/lifestylelogging-service/dailyLog"
         )
 
-        self.garth = garth.Client(
+        self.garth = _GarthClient(
             domain="garmin.cn" if is_cn else "garmin.com",
             pool_connections=20,
             pool_maxsize=20,
@@ -881,7 +899,7 @@ class Garmin:
             "value": weight,
         }
         logger.debug("Adding weigh-in")
-        return _validate_json_exists(self.garth.post("connectapi", url, json=payload))
+        return _validate_json_exists(self.garth.post("connectapi", url, json=payload, api=True))
 
     def add_weigh_in_with_timestamps(
         self,
@@ -925,7 +943,7 @@ class Garmin:
         logger.debug("Adding weigh-in with explicit timestamps: %s", payload)
 
         # Make the POST request
-        return _validate_json_exists(self.garth.post("connectapi", url, json=payload))
+        return _validate_json_exists(self.garth.post("connectapi", url, json=payload, api=True))
 
     def get_weigh_ins(self, startdate: str, enddate: str) -> dict[str, Any]:
         """Get weigh-ins between startdate and enddate using format 'YYYY-MM-DD'."""
@@ -1040,7 +1058,7 @@ class Garmin:
                 raise ValueError(f"{name} must be an int in [{lo}, {hi}]")
         logger.debug("Adding blood pressure")
 
-        return self.garth.post("connectapi", url, json=payload).json()
+        return self.garth.post("connectapi", url, json=payload, api=True).json()
 
     def get_blood_pressure(
         self, startdate: str, enddate: str | None = None
@@ -1254,7 +1272,7 @@ class Garmin:
         }
 
         logger.debug("Adding hydration data")
-        return self.garth.put("connectapi", url, json=payload).json()
+        return self.garth.put("connectapi", url, json=payload, api=True).json()
 
     def get_hydration_data(self, cdate: str) -> dict[str, Any]:
         """Return available hydration data 'cdate' format 'YYYY-MM-DD'."""
@@ -2308,7 +2326,7 @@ class Garmin:
         logger.debug("Linking gear %s to activity %s", gearUUID, activity_id)
 
         try:
-            return self.garth.put("connectapi", url).json()
+            return self.garth.put("connectapi", url, api=True).json()
         except GarthHTTPError as e:
             status = getattr(getattr(e.error, "response", None), "status_code", None)
             if status == 404:
@@ -2337,7 +2355,7 @@ class Garmin:
         logger.debug("Unlinking gear %s from activity %s", gearUUID, activity_id)
 
         try:
-            return self.garth.put("connectapi", url).json()
+            return self.garth.put("connectapi", url, api=True).json()
         except GarthHTTPError as e:
             status = getattr(getattr(e.error, "response", None), "status_code", None)
             if status == 404:
@@ -2967,7 +2985,7 @@ class Garmin:
         )
         logger.debug("Querying Garmin GraphQL op=%s vars=%s", op, vars_keys)
         return self.garth.post(
-            "connectapi", self.garmin_graphql_endpoint, json=query
+            "connectapi", self.garmin_graphql_endpoint, json=query, api=True
         ).json()
 
     def get_usage_indicators(self) -> dict[str, Any]:
